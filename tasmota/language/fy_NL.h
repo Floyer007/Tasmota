@@ -256,6 +256,7 @@
 #define D_CONFIGURATION "Konfiguraasje"
 #define D_INFORMATION "Ynformaasje"
 #define D_FIRMWARE_UPGRADE "Opwurdearje"
+#define D_MANAGEMENT "Consoles"
 #define D_CONSOLE "Konsole"
 #define D_CONFIRM_RESTART "Befestigje opnij starte"
 
@@ -290,10 +291,19 @@
 #define D_WEP "WEP"
 #define D_WPA_PSK "WPA PSK"
 #define D_WPA2_PSK "WPA2 PSK"
-#define D_AP1_SSID "AP1 SSId"
-#define D_AP1_PASSWORD "AP1 Wachtwurd"
-#define D_AP2_SSID "AP2 SSId"
-#define D_AP2_PASSWORD "AP2 Wachtwurd"
+#define D_AP1_SSID "WiFi Network"
+#define D_AP1_SSID_HELP "Type or Select your WiFi Network"
+#define D_AP2_SSID "WiFi Network 2"
+#define D_AP2_SSID_HELP "Type your Alternative WiFi Network"
+#define D_AP_PASSWORD "WiFi Wachtwurd"
+#define D_AP_PASSWORD_HELP "Enter your WiFi Password"
+#define D_SELECT_YOUR_WIFI_NETWORK "Select your WiFi Network"
+#define D_SHOW_MORE_WIFI_NETWORKS "Scan for all WiFi Networks"
+#define D_SHOW_MORE_OPTIONS "More Options"
+#define D_CHECK_CREDENTIALS "Please, check your credentials"
+#define D_SUCCESSFUL_WIFI_CONNECTION "Successful WiFi Connection"
+#define D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "Now you can close this window"
+#define D_REDIRECTING_TO_NEW_IP "Redirecting to new device's IP address"
 
 #define D_MQTT_PARAMETERS "MQTT parameters"
 #define D_CLIENT "Client"
@@ -568,6 +578,8 @@
 
 // xsns_53_sml.ino
 #define D_TPWRIN "Totale enerzjy yn"
+#define D_TPWRIN0 "Totale enerzjy yn T0"
+#define D_TPWRIN1 "Totale enerzjy yn T1"
 #define D_TPWROUT "Totale enerzjy út"
 #define D_TPWRCURR "Eigentlike krêft In/Out"
 #define D_TPWRCURR1 "Eigentlike krêft In p1"
@@ -610,6 +622,7 @@
 #define D_SENSOR_LED_LINK      "LedLink"    // Suffix "i"
 #define D_SENSOR_PWM           "PWM"        // Suffix "1"
 #define D_SENSOR_COUNTER       "Teller"     // Suffix "1"
+#define D_SENSOR_INPUT         "Input"
 #define D_SENSOR_IRRECV        "IRrecv"
 #define D_SENSOR_MHZ_RX        "MHZ Rx"
 #define D_SENSOR_MHZ_TX        "MHZ Tx"
@@ -810,7 +823,7 @@
 #define D_SENSOR_TFMINIPLUS_RX  "TFmini+ RX"
 #define D_SENSOR_ZEROCROSS     "ZC Pulse"
 #define D_SENSOR_HALLEFFECT    "HallEffect"
-
+#define D_SENSOR_EPD_DATA      "EPD Data"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -916,6 +929,9 @@
 #define D_MANAGE_FILE_SYSTEM   "Bestânbehearder"
 #define D_FS_SIZE              "Grutte"
 #define D_FS_FREE              "Frij"
+#define D_NEW_FILE             "newfile.txt"
+#define D_CREATE_NEW_FILE      "Create and edit new file"
+#define D_EDIT_FILE            "Edit File"
 
 //xsns_67_as3935.ino
 #define D_AS3935_GAIN "gain:"
@@ -1032,8 +1048,12 @@
 #define D_NEOPOOL_PR_OFF                  "PrOff"
 #define D_NEOPOOL_SETPOINT_OK             "Ok"
 #define D_NEOPOOL_COVER                   "Cover"
-#define D_NEOPOOL_SHOCK                   "Shock"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_SHOCK                   "Boost"
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Low"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"

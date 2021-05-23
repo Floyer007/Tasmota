@@ -18,6 +18,7 @@
 */
 
 #ifdef USE_HOME_ASSISTANT
+#undef USE_TASMOTA_DISCOVERY
 
 #define XDRV_12 12
 
@@ -174,7 +175,6 @@ const char kHAssError2[] PROGMEM =
 const char kHAssError3[] PROGMEM =
   "HASS: Unable to create one or more entities from Json data, please check your configuration. Failed to parse";
 
-uint8_t hass_init_step = 0;
 uint8_t hass_mode = 0;
 int hass_tele_period = 0;
 
@@ -328,9 +328,7 @@ void NewHAssDiscovery(void)
   ResponseClear(); // Clear retained message
 
   // Full 12 chars MAC address as ID
-  String mac_address = WiFi.macAddress();
-  mac_address.replace(":", "");
-  snprintf_P(unique_id, sizeof(unique_id), PSTR("%s"), mac_address.c_str());
+  snprintf_P(unique_id, sizeof(unique_id), PSTR("%s"), NetworkUniqueId().c_str());
   snprintf_P(stopic, sizeof(stopic), PSTR("tasmota/discovery/%s/config"), unique_id);
 
   // Send empty message if new discovery is disabled
@@ -364,8 +362,8 @@ void TryResponseAppend_P(const char *format, ...)
   char dummy[2];
   int dlen = vsnprintf_P(dummy, 1, format, args);
 
-  int mlen = strlen(TasmotaGlobal.mqtt_data);
-  int slen = sizeof(TasmotaGlobal.mqtt_data) - 1 - mlen;
+  int mlen = ResponseLength();
+  int slen = ResponseSize() - 1 - mlen;
   if (dlen >= slen)
   {
     AddLog_P(LOG_LEVEL_ERROR, PSTR("%s (%u/%u):"), kHAssError1, dlen, slen);
@@ -449,6 +447,11 @@ void HAssAnnounceRelayLight(void)
     TasmotaGlobal.masterlog_level = ShowTopic = 4; // Hide topic on clean and remove use weblog 4 to see it
 
     bool RelayX = PinUsed(GPIO_REL1, i-1) || (valid_relay >= i) || (TuyaRel > 0 && TuyaMod) || (TuyaRelInv > 0 && TuyaMod); // Check if the gpio is configured as Relay or force it for Sonoff DUAL R1 with MCU and Tuya MCU
+#ifdef USE_MCP230xx_OUTPUT
+    if (i <= TasmotaGlobal.devices_present){
+      RelayX = true;
+    }
+#endif //USE_MCP230xx_OUTPUT
     is_topic_light = Settings.flag.hass_light && RelayX || TasmotaGlobal.light_type && !RelayX || PwmMod || (TuyaDim > 0 && TuyaMod); // SetOption30 - Enforce HAss autodiscovery as light
     ResponseClear();  // Clear retained message
 
@@ -1082,7 +1085,7 @@ void HAssDiscovery(void)
 void HAssDiscover(void)
 {
   hass_mode = 1;      // Force discovery
-  hass_init_step = 1; // Delayed discovery
+  TasmotaGlobal.discovery_counter = 1; // Delayed discovery
 }
 
 void HAssAnyKey(void)
@@ -1158,10 +1161,10 @@ bool Xdrv12(uint8_t function)
     switch (function)
     {
     case FUNC_EVERY_SECOND:
-      if (hass_init_step)
+      if (TasmotaGlobal.discovery_counter)
       {
-        hass_init_step--;
-        if (!hass_init_step)
+        TasmotaGlobal.discovery_counter--;
+        if (!TasmotaGlobal.discovery_counter)
         {
           HAssDiscovery(); // Scheduled discovery using available resources
           NewHAssDiscovery(); // Send the topics for Home Assistant Official Integration
@@ -1181,16 +1184,19 @@ bool Xdrv12(uint8_t function)
     case FUNC_ANY_KEY:
       HAssAnyKey();
       break;
+/*
     case FUNC_MQTT_INIT:
       hass_mode = 0;      // Discovery only if Settings.flag.hass_discovery is set
-      hass_init_step = 10; // Delayed discovery
+      TasmotaGlobal.discovery_counter = 10; // Delayed discovery
       // if (!Settings.flag.hass_discovery) {
       //   NewHAssDiscovery();
       // }
       break;
-
+*/
     case FUNC_MQTT_SUBSCRIBE:
       HassLwtSubscribe(hasslwt);
+      hass_mode = 0;      // Discovery only if Settings.flag.hass_discovery is set
+      TasmotaGlobal.discovery_counter = (0 == Mqtt.initial_connection_state) ? 1 : 10; // Delayed discovery
       break;
     case FUNC_MQTT_DATA:
       result = HAssMqttLWT();

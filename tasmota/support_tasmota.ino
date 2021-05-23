@@ -43,8 +43,7 @@ char* Format(char* output, const char* input_p, int size)
           snprintf_P(tmp, size, PSTR("%s%c0%dd"), output, '%', digits);
           snprintf_P(output, size, tmp, ESP_getChipId() & 0x1fff);            // %04d - short chip ID in dec, like in hostname
         } else {
-          String mac_address = WiFi.macAddress();
-          mac_address.replace(":", "");
+          String mac_address = NetworkUniqueId();
           if (digits > 12) { digits = 12; }
           String mac_part = mac_address.substring(12 - digits);
           snprintf_P(output, size, PSTR("%s%s"), output, mac_part.c_str());  // %01X .. %12X - mac address in hex
@@ -122,9 +121,7 @@ char* GetTopic_P(char *stopic, uint32_t prefix, char *topic, const char* subtopi
 
     fulltopic.replace(FPSTR(MQTT_TOKEN_TOPIC), (const __FlashStringHelper *)topic);
     fulltopic.replace(F("%hostname%"), TasmotaGlobal.hostname);
-    String token_id = WiFi.macAddress();
-    token_id.replace(":", "");
-    fulltopic.replace(F("%id%"), token_id);
+    fulltopic.replace(F("%id%"), NetworkUniqueId());
   }
   fulltopic.replace(F("#"), "");
   fulltopic.replace(F("//"), "/");
@@ -194,7 +191,7 @@ void ZeroCrossMomentEnd(void) {
 #endif
 }
 
-void ICACHE_RAM_ATTR ZeroCrossIsr(void) {
+void IRAM_ATTR ZeroCrossIsr(void) {
   uint32_t time = micros();
   TasmotaGlobal.zc_interval = ((int32_t) (time - TasmotaGlobal.zc_time));
   TasmotaGlobal.zc_time = time;
@@ -536,10 +533,10 @@ bool SendKey(uint32_t key, uint32_t device, uint32_t state)
           (POWER_TOGGLE == state)) {
         state = ~(TasmotaGlobal.power >> (device -1)) &1;   // POWER_OFF or POWER_ON
       }
-      snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), GetStateText(state));
+      Response_P(GetStateText(state));
     }
 #ifdef USE_DOMOTICZ
-    if (!(DomoticzSendKey(key, device, state, strlen(TasmotaGlobal.mqtt_data)))) {
+    if (!(DomoticzSendKey(key, device, state, ResponseLength()))) {
 #endif  // USE_DOMOTICZ
       MqttPublish(stopic, ((key) ? Settings.flag.mqtt_switch_retain                         // CMND_SWITCHRETAIN
                                  : Settings.flag.mqtt_button_retain) &&                     // CMND_BUTTONRETAIN
@@ -550,7 +547,7 @@ bool SendKey(uint32_t key, uint32_t device, uint32_t state)
     result = !Settings.flag3.button_switch_force_local;  // SetOption61 - Force local operation when button/switch topic is set
   } else {
     Response_P(PSTR("{\"%s%d\":{\"State\":%d}}"), (key) ? PSTR("Switch") : PSTR("Button"), device, state);
-    result = XdrvRulesProcess();
+    result = XdrvRulesProcess(0);
   }
 #ifdef USE_PWM_DIMMER
   if (PWM_DIMMER != TasmotaGlobal.module_type || !result) {
@@ -602,7 +599,9 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
   }
   TasmotaGlobal.active_device = device;
 
-  SetPulseTimer((device -1) % MAX_PULSETIMERS, 0);
+  if (state != POWER_SHOW_STATE) {
+    SetPulseTimer((device -1) % MAX_PULSETIMERS, 0);
+  }
 
   static bool interlock_mutex = false;    // Interlock power command pending
   power_t mask = 1 << (device -1);        // Device to control
@@ -781,14 +780,7 @@ void MqttPublishTeleState(void)
   ResponseClear();
   MqttShowState();
   MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_STATE), Settings.flag5.mqtt_state_retain);
-
-#ifdef USE_DT_VARS
-  DTVarsTeleperiod();
-#endif // USE_DT_VARS
-
-#if defined(USE_RULES) || defined(USE_SCRIPT)
-  RulesTeleperiod();  // Allow rule based HA messages
-#endif  // USE_SCRIPT
+  XdrvRulesProcess(1);
 }
 
 void TempHumDewShow(bool json, bool pass_on, const char *types, float f_temperature, float f_humidity)
@@ -831,7 +823,7 @@ bool MqttShowSensor(void)
 {
   ResponseAppendTime();
 
-  int json_data_start = strlen(TasmotaGlobal.mqtt_data);
+  int json_data_start = ResponseLength();
   for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
 #ifdef USE_TM1638
     if (PinUsed(GPIO_SWT1, i) || (PinUsed(GPIO_TM1638CLK) && PinUsed(GPIO_TM1638DIO) && PinUsed(GPIO_TM1638STB))) {
@@ -844,14 +836,14 @@ bool MqttShowSensor(void)
   XsnsCall(FUNC_JSON_APPEND);
   XdrvCall(FUNC_JSON_APPEND);
 
-  bool json_data_available = (strlen(TasmotaGlobal.mqtt_data) - json_data_start);
-  if (strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_PRESSURE)) != nullptr) {
+  bool json_data_available = (ResponseLength() - json_data_start);
+  if (ResponseContains_P(PSTR(D_JSON_PRESSURE))) {
     ResponseAppend_P(PSTR(",\"" D_JSON_PRESSURE_UNIT "\":\"%s\""), PressureUnit().c_str());
   }
-  if (strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_TEMPERATURE)) != nullptr) {
+  if (ResponseContains_P(PSTR(D_JSON_TEMPERATURE))) {
     ResponseAppend_P(PSTR(",\"" D_JSON_TEMPERATURE_UNIT "\":\"%c\""), TempUnit());
   }
-  if ((strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_SPEED)) != nullptr) && Settings.flag2.speed_conversion) {
+  if (ResponseContains_P(PSTR(D_JSON_SPEED)) && Settings.flag2.speed_conversion) {
     ResponseAppend_P(PSTR(",\"" D_JSON_SPEED_UNIT "\":\"%s\""), SpeedUnit().c_str());
   }
   ResponseJsonEnd();
@@ -860,11 +852,18 @@ bool MqttShowSensor(void)
   return json_data_available;
 }
 
-void MqttPublishSensor(void)
-{
+void MqttPublishSensor(void) {
   ResponseClear();
   if (MqttShowSensor()) {
     MqttPublishTeleSensor();
+  }
+}
+
+void MqttPublishTeleperiodSensor(void) {
+  ResponseClear();
+  if (MqttShowSensor()) {
+    MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);  // CMND_SENSORRETAIN
+    XdrvRulesProcess(1);
   }
 }
 
@@ -889,7 +888,7 @@ void PerformEverySecond(void)
     Settings.last_module = Settings.module;
 
 #ifdef USE_DEEPSLEEP
-    if (!(DeepSleepEnabled() && !Settings.flag3.bootcount_update)) {
+    if (!(DeepSleepEnabled() && !Settings.flag3.bootcount_update)) {  // SetOption76  - (Deepsleep) Enable incrementing bootcount (1) when deepsleep is enabled
 #endif
       Settings.bootcount++;              // Moved to here to stop flash writes during start-up
       AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION D_BOOT_COUNT " %d"), Settings.bootcount);
@@ -930,7 +929,7 @@ void PerformEverySecond(void)
 
   ResetGlobalValues();
 
-  if (Settings.tele_period) {
+  if (Settings.tele_period || (3601 == TasmotaGlobal.tele_period)) {
     if (TasmotaGlobal.tele_period >= 9999) {
       if (!TasmotaGlobal.global_state.network_down) {
         TasmotaGlobal.tele_period = 0;  // Allow teleperiod once wifi is connected
@@ -941,14 +940,7 @@ void PerformEverySecond(void)
         TasmotaGlobal.tele_period = 0;
 
         MqttPublishTeleState();
-
-        ResponseClear();
-        if (MqttShowSensor()) {
-          MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);  // CMND_SENSORRETAIN
-#if defined(USE_RULES) || defined(USE_SCRIPT)
-          RulesTeleperiod();  // Allow rule based HA messages
-#endif  // USE_RULES
-        }
+        MqttPublishTeleperiodSensor();
 
         XsnsCall(FUNC_AFTER_TELEPERIOD);
         XdrvCall(FUNC_AFTER_TELEPERIOD);
@@ -1117,10 +1109,11 @@ void Every250mSeconds(void)
 #endif  // USE_ARILUX_RF
         TasmotaGlobal.ota_state_flag = 92;
         ota_result = 0;
+        char full_ota_url[200];
         ota_retry_counter--;
         if (ota_retry_counter) {
           char ota_url[TOPSZ];
-          strlcpy(TasmotaGlobal.mqtt_data, GetOtaUrl(ota_url, sizeof(ota_url)), sizeof(TasmotaGlobal.mqtt_data));
+          strlcpy(full_ota_url, GetOtaUrl(ota_url, sizeof(ota_url)), sizeof(full_ota_url));
 #ifdef ESP8266
 #ifndef FIRMWARE_MINIMAL
           if (RtcSettings.ota_loader) {
@@ -1140,10 +1133,10 @@ void Every250mSeconds(void)
             // Replace http://192.168.2.17:80/api/arduino/tasmota.bin  with http://192.168.2.17:80/api/arduino/tasmota-minimal.bin
             // Replace http://192.168.2.17/api/arduino/tasmota.bin.gz  with http://192.168.2.17/api/arduino/tasmota-minimal.bin.gz
 
-            char *bch = strrchr(TasmotaGlobal.mqtt_data, '/');         // Only consider filename after last backslash prevent change of urls having "-" in it
-            if (bch == nullptr) { bch = TasmotaGlobal.mqtt_data; }     // No path found so use filename only
+            char *bch = strrchr(full_ota_url, '/');         // Only consider filename after last backslash prevent change of urls having "-" in it
+            if (bch == nullptr) { bch = full_ota_url; }     // No path found so use filename only
             char *ech = strchr(bch, '.');                              // Find file type in filename (none, .ino.bin, .ino.bin.gz, .bin, .bin.gz or .gz)
-            if (ech == nullptr) { ech = TasmotaGlobal.mqtt_data + strlen(TasmotaGlobal.mqtt_data); }  // Point to '/0' at end of mqtt_data becoming an empty string
+            if (ech == nullptr) { ech = full_ota_url + strlen(full_ota_url); }  // Point to '/0' at end of mqtt_data becoming an empty string
 
 //AddLog(LOG_LEVEL_DEBUG, PSTR("OTA: File type [%s]"), ech);
 
@@ -1153,22 +1146,22 @@ void Every250mSeconds(void)
             char *pch = strrchr(bch, '-');                             // Find last dash (-) and ignore remainder - handles tasmota-DE
             if (pch == nullptr) { pch = ech; }                         // No dash so ignore filetype
             *pch = '\0';                                               // mqtt_data = http://domus1:80/api/arduino/tasmota
-            snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("%s-" D_JSON_MINIMAL "%s"), TasmotaGlobal.mqtt_data, ota_url_type);  // Minimal filename must be filename-minimal
+            snprintf_P(full_ota_url, sizeof(full_ota_url), PSTR("%s-" D_JSON_MINIMAL "%s"), full_ota_url, ota_url_type);  // Minimal filename must be filename-minimal
           }
 #endif  // FIRMWARE_MINIMAL
           if (ota_retry_counter < OTA_ATTEMPTS / 2) {
-            if (strstr_P(TasmotaGlobal.mqtt_data, PSTR(".gz"))) {      // Might be made case insensitive...
+            if (StrCaseStr_P(full_ota_url, PSTR(".gz"))) {
               ota_retry_counter = 1;
             } else {
-              strcat_P(TasmotaGlobal.mqtt_data, PSTR(".gz"));
+              strcat_P(full_ota_url, PSTR(".gz"));
             }
           }
 #endif  // ESP8266
           char version[50];
-          snprintf_P(version, sizeof(version), PSTR("%s-%s"), TasmotaGlobal.image_name, TasmotaGlobal.version);
-          AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UPLOAD "%s %s"), TasmotaGlobal.mqtt_data, version);
+          snprintf_P(version, sizeof(version), PSTR("%s%s"), TasmotaGlobal.version, TasmotaGlobal.image_name);
+          AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UPLOAD "%s %s"), full_ota_url, version);
           WiFiClient OTAclient;
-          ota_result = (HTTP_UPDATE_FAILED != ESPhttpUpdate.update(OTAclient, TasmotaGlobal.mqtt_data, version));
+          ota_result = (HTTP_UPDATE_FAILED != ESPhttpUpdate.update(OTAclient, full_ota_url, version));
           if (!ota_result) {
 #ifndef FIRMWARE_MINIMAL
             int ota_error = ESPhttpUpdate.getLastError();
@@ -1187,7 +1180,6 @@ void Every250mSeconds(void)
         TasmotaGlobal.ota_state_flag = 0;
         Response_P(PSTR("{\"" D_CMND_UPGRADE "\":\""));
         if (ota_result) {
-//          SetFlashModeDout();                             // Force DOUT for both ESP8266 and ESP8285
           ResponseAppend_P(PSTR(D_JSON_SUCCESSFUL ". " D_JSON_RESTARTING));
           TasmotaGlobal.restart_flag = 2;
         } else {
@@ -1195,7 +1187,7 @@ void Every250mSeconds(void)
         }
         ResponseAppend_P(PSTR("\"}"));
 //        TasmotaGlobal.restart_flag = 2;                   // Restart anyway to keep memory clean webserver
-        MqttPublishPrefixTopic_P(STAT, PSTR(D_CMND_UPGRADE));
+        MqttPublishPrefixTopicRulesProcess_P(STAT, PSTR(D_CMND_UPGRADE));
 #ifdef USE_COUNTER
         CounterInterruptDisable(false);
 #endif  // USE_COUNTER
@@ -1206,6 +1198,7 @@ void Every250mSeconds(void)
     if (MidnightNow()) {
       XsnsCall(FUNC_SAVE_AT_MIDNIGHT);
     }
+
     if (TasmotaGlobal.save_data_counter && CommandsReady()) {
       TasmotaGlobal.save_data_counter--;
       if (TasmotaGlobal.save_data_counter <= 0) {
@@ -1226,8 +1219,11 @@ void Every250mSeconds(void)
         TasmotaGlobal.save_data_counter = Settings.save_data;
       }
     }
+
     if (TasmotaGlobal.restart_flag && CommandsReady()) {
-      if ((214 == TasmotaGlobal.restart_flag) || (215 == TasmotaGlobal.restart_flag) || (216 == TasmotaGlobal.restart_flag)) {
+      if ((214 == TasmotaGlobal.restart_flag) ||          // Reset 4
+          (215 == TasmotaGlobal.restart_flag) ||          // Reset 5
+          (216 == TasmotaGlobal.restart_flag)) {          // Reset 6
         // Backup current SSIDs and Passwords
         char storage_ssid1[strlen(SettingsText(SET_STASSID1)) +1];
         strncpy(storage_ssid1, SettingsText(SET_STASSID1), sizeof(storage_ssid1));
@@ -1251,7 +1247,8 @@ void Every250mSeconds(void)
 //        if (216 == TasmotaGlobal.restart_flag) {
           // Backup mqtt host, port, client, username and password
 //        }
-        if ((215 == TasmotaGlobal.restart_flag) || (216 == TasmotaGlobal.restart_flag)) {
+        if ((215 == TasmotaGlobal.restart_flag) ||        // Reset 5
+            (216 == TasmotaGlobal.restart_flag)) {        // Reset 6
           SettingsErase(2);  // Erase all flash from program end to end of physical excluding optional filesystem
         }
         SettingsDefault();
@@ -1260,7 +1257,7 @@ void Every250mSeconds(void)
         SettingsUpdateText(SET_STASSID2, storage_ssid2);
         SettingsUpdateText(SET_STAPWD1, storage_pass1);
         SettingsUpdateText(SET_STAPWD2, storage_pass2);
-        if (216 == TasmotaGlobal.restart_flag) {
+        if (216 == TasmotaGlobal.restart_flag) {          // Reset 6
           // Restore the mqtt host, port, client, username and password
           SettingsUpdateText(SET_MQTT_HOST, storage_mqtthost);
           SettingsUpdateText(SET_MQTT_USER, storage_mqttuser);
@@ -1268,23 +1265,26 @@ void Every250mSeconds(void)
           SettingsUpdateText(SET_MQTT_TOPIC, storage_mqtttopic);
           Settings.mqtt_port = mqtt_port;
         }
-        TasmotaGlobal.restart_flag = 2;
+        TasmotaGlobal.restart_flag = 3;                   // Finish backlog then Restart 1
       }
-      else if (213 == TasmotaGlobal.restart_flag) {
+      else if (213 == TasmotaGlobal.restart_flag) {       // Reset 3
         SettingsSdkErase();  // Erase flash SDK parameters
-        TasmotaGlobal.restart_flag = 2;
+        TasmotaGlobal.restart_flag = 2;                   // Restart 1
       }
-      else if (212 == TasmotaGlobal.restart_flag) {
+      else if (212 == TasmotaGlobal.restart_flag) {       // Reset 2
         SettingsErase(0);    // Erase all flash from program end to end of physical flash
-        TasmotaGlobal.restart_flag = 211;
+        TasmotaGlobal.restart_flag = 211;                 // Reset 1
       }
-      if (211 == TasmotaGlobal.restart_flag) {
+
+      if (211 == TasmotaGlobal.restart_flag) {            // Reset 1
         SettingsDefault();
-        TasmotaGlobal.restart_flag = 2;
+        TasmotaGlobal.restart_flag = 3;                   // Finish backlog then Restart 1
       }
-      if (2 == TasmotaGlobal.restart_flag) {
+
+      if (2 == TasmotaGlobal.restart_flag) {              // Restart 1
         SettingsSaveAll();
       }
+
       TasmotaGlobal.restart_flag--;
       if (TasmotaGlobal.restart_flag <= 0) {
         AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_APPLICATION "%s"), (TasmotaGlobal.restart_halt) ? PSTR("Halted") : PSTR(D_RESTARTING));
@@ -1296,6 +1296,8 @@ void Every250mSeconds(void)
     if (Settings.flag4.network_wifi) {
       WifiCheck(TasmotaGlobal.wifi_state_flag);
       TasmotaGlobal.wifi_state_flag = WIFI_RESTART;
+    } else {
+      WifiDisable();
     }
     break;
   case 3:                                                 // Every x.75 second
@@ -1315,7 +1317,7 @@ void Every250mSeconds(void)
       if (Settings.webserver) {
 
 #ifdef ESP8266
-        StartWebserver(Settings.webserver, WiFi.localIP());
+        if (!WifiIsInManagerMode()) { StartWebserver(Settings.webserver, WiFi.localIP()); }
 #endif  // ESP8266
 #ifdef ESP32
 #ifdef USE_ETHERNET
@@ -1334,7 +1336,7 @@ void Every250mSeconds(void)
         StopWebserver();
       }
 #ifdef USE_EMULATION
-    if (Settings.flag2.emulation) { UdpConnect(); }
+      if (Settings.flag2.emulation) { UdpConnect(); }
 #endif  // USE_EMULATION
 #endif  // USE_WEBSERVER
 
@@ -1565,6 +1567,10 @@ void SerialInput(void)
     TasmotaGlobal.serial_in_buffer[TasmotaGlobal.serial_in_byte_counter] = 0;                  // Serial data completed
     bool assume_json = (!Settings.flag.mqtt_serial_raw && (TasmotaGlobal.serial_in_buffer[0] == '{'));
 
+    if (serial_buffer_overrun) {
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_COMMAND "Serial buffer overrun"));
+    }
+
     Response_P(PSTR("{\"" D_JSON_SERIALRECEIVED "\":"));
     if (assume_json) {
       ResponseAppend_P(TasmotaGlobal.serial_in_buffer);
@@ -1684,6 +1690,19 @@ void GpioInit(void)
         mpin -= (AGPIO(GPIO_KEY1_INV_NP) - AGPIO(GPIO_KEY1));
       }
 #ifdef ESP32
+      else if ((mpin >= AGPIO(GPIO_SWT1_PD)) && (mpin < (AGPIO(GPIO_SWT1_PD) + MAX_SWITCHES))) {
+        SwitchPulldownFlag(mpin - AGPIO(GPIO_SWT1_PD));
+        mpin -= (AGPIO(GPIO_SWT1_PD) - AGPIO(GPIO_SWT1));
+      }
+      else if ((mpin >= AGPIO(GPIO_KEY1_PD)) && (mpin < (AGPIO(GPIO_KEY1_PD) + MAX_KEYS))) {
+        ButtonPulldownFlag(mpin - AGPIO(GPIO_KEY1_PD));    //  0 .. 3
+        mpin -= (AGPIO(GPIO_KEY1_PD) - AGPIO(GPIO_KEY1));
+      }
+      else if ((mpin >= AGPIO(GPIO_KEY1_INV_PD)) && (mpin < (AGPIO(GPIO_KEY1_INV_PD) + MAX_KEYS))) {
+        ButtonPulldownFlag(mpin - AGPIO(GPIO_KEY1_INV_PD));  //  0 .. 3
+        ButtonInvertFlag(mpin - AGPIO(GPIO_KEY1_INV_PD));    //  0 .. 3
+        mpin -= (AGPIO(GPIO_KEY1_INV_PD) - AGPIO(GPIO_KEY1));
+      }
       else if ((mpin >= AGPIO(GPIO_KEY1_TC)) && (mpin < (AGPIO(GPIO_KEY1_TC) + MAX_KEYS))) {
         ButtonTouchFlag(mpin - AGPIO(GPIO_KEY1_TC));  //  0 .. 3
         mpin -= (AGPIO(GPIO_KEY1_TC) - AGPIO(GPIO_KEY1));
@@ -1802,6 +1821,13 @@ void GpioInit(void)
     }
   }
 
+  // Digital input
+  for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
+    if (PinUsed(GPIO_INPUT, i)) {
+      pinMode(Pin(GPIO_INPUT, i), INPUT);
+    }
+  }
+
 #ifdef USE_I2C
   TasmotaGlobal.i2c_enabled = (PinUsed(GPIO_I2C_SCL) && PinUsed(GPIO_I2C_SDA));
   if (TasmotaGlobal.i2c_enabled) {
@@ -1898,15 +1924,6 @@ void GpioInit(void)
   if (PWM_DIMMER == TasmotaGlobal.module_type && PinUsed(GPIO_REL1)) { TasmotaGlobal.devices_present--; }
 #endif  // USE_PWM_DIMMER
 
-  ButtonInit();
-  SwitchInit();
-#ifdef ROTARY_V1
-  RotaryInit();
-#endif
-
   SetLedPower(Settings.ledstate &8);
   SetLedLink(Settings.ledstate &8);
-
-  XdrvCall(FUNC_PRE_INIT);
-  XsnsCall(FUNC_PRE_INIT);
 }

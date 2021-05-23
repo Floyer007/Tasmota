@@ -91,19 +91,19 @@ struct TUYA {
 #define D_CMND_TUYARGB "RGB"
 #define D_CMND_TUYA_ENUM "Enum"
 #define D_CMND_TUYA_ENUM_LIST "EnumList"
-#define D_CMND_TUYA_SET_TEMP "SetTemp"
-#define D_CMND_TUYA_SET_HUM "SetHum"
-#define D_CMND_TUYA_SET_TIMER "SetTimer"
+// #define D_CMND_TUYA_SET_TEMP "SetTemp"
+// #define D_CMND_TUYA_SET_HUM "SetHum"
+// #define D_CMND_TUYA_SET_TIMER "SetTimer"
 
-const char kTuyaSensors[] PROGMEM = // Lit of available sensors (can be expanded in the future)
+const char kTuyaSensors[] PROGMEM = // List of available sensors (can be expanded in the future)
   "" D_JSON_TEMPERATURE "|TempSet|" D_JSON_HUMIDITY "|HumSet|" D_JSON_ILLUMINANCE
-  "|" D_JSON_TVOC "|" D_JSON_ECO2 "|" D_JSON_CO2 "|||Timer1|Timer2|Timer3|TImer4";
+  "|" D_JSON_TVOC "|" D_JSON_ECO2 "|" D_JSON_CO2 "|" D_JSON_GAS "||Timer1|Timer2|Timer3|TImer4";
 
 const char kTuyaCommand[] PROGMEM = D_PRFX_TUYA "|"  // Prefix
-  D_CMND_TUYA_MCU "|" D_CMND_TUYA_MCU_SEND_STATE "|" D_CMND_TUYARGB "|" D_CMND_TUYA_ENUM "|" D_CMND_TUYA_ENUM_LIST;
+  D_CMND_TUYA_MCU "|" D_CMND_TUYA_MCU_SEND_STATE "|" D_CMND_TUYARGB "|" D_CMND_TUYA_ENUM "|" D_CMND_TUYA_ENUM_LIST "|TempSetRes";
 
 void (* const TuyaCommand[])(void) PROGMEM = {
-  &CmndTuyaMcu, &CmndTuyaSend, &CmndTuyaRgb, &CmndTuyaEnum, &CmndTuyaEnumList
+  &CmndTuyaMcu, &CmndTuyaSend, &CmndTuyaRgb, &CmndTuyaEnum, &CmndTuyaEnumList, &CmndTuyaTempSetRes
 };
 
 /*********************************************************************************************\
@@ -242,6 +242,14 @@ void CmndTuyaRgb(void) { // Command to control the RGB format
   ResponseCmndNumber(Settings.tuya_fnid_map[230].dpid);
 }
 
+void CmndTuyaTempSetRes(void)
+{
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 3)) {
+    Settings.mbflag2.temperature_set_res = XdrvMailbox.payload;
+  }
+  ResponseCmndNumber(Settings.mbflag2.temperature_set_res);
+}
+
 void CmndTuyaEnum(void) { // Command to control up to four type 4 Enum
   uint16_t EnumIdx = XdrvMailbox.index;
   int32_t payload = XdrvMailbox.payload;
@@ -268,7 +276,7 @@ void CmndTuyaEnum(void) { // Command to control up to four type 4 Enum
         if (added) {
           ResponseAppend_P(PSTR(","));
         }
-        ResponseAppend_P(PSTR("\"Enum%d\":%d"), i + 1, Tuya.EnumState[i]); // Returns the avtual values of Enum as list
+        ResponseAppend_P(PSTR("\"Enum%d\":%d"), i + 1, Tuya.EnumState[i]); // Returns the actual values of Enum as list
         added = true;
       }
     }
@@ -336,6 +344,7 @@ float TuyaAdjustedTemperature(int16_t packetValue, uint8_t res)
         break;
     }
 }
+
 /*********************************************************************************************\
  * Internal Functions
 \*********************************************************************************************/
@@ -392,7 +401,7 @@ inline bool TuyaFuncIdValid(uint8_t fnId) {
           (fnId >= TUYA_MCU_FUNC_MOTOR_DIR && fnId <= TUYA_MCU_FUNC_DUMMY) ||
           (fnId == TUYA_MCU_FUNC_LOWPOWER_MODE) ||
           (fnId >= TUYA_MCU_FUNC_TEMP && fnId <= TUYA_MCU_FUNC_HUMSET) ||
-          (fnId >= TUYA_MCU_FUNC_LX && fnId <= TUYA_MCU_FUNC_ECO2) ||
+          (fnId >= TUYA_MCU_FUNC_LX && fnId <= TUYA_MCU_FUNC_GAS) ||
           (fnId >= TUYA_MCU_FUNC_TIMER1 && fnId <= TUYA_MCU_FUNC_TIMER4);
 }
 uint8_t TuyaGetFuncId(uint8_t dpid) {
@@ -704,7 +713,7 @@ void TuyaProcessStatePacket(void) {
     fnId = TuyaGetFuncId(Tuya.buffer[dpidStart]);
 
     AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: fnId=%d is set for dpId=%d"), fnId, Tuya.buffer[dpidStart]);
-    if (Tuya.buffer[dpidStart + 1] == 0) { 
+    if (Tuya.buffer[dpidStart + 1] == 0) {
 #ifdef USE_ENERGY_SENSOR
         if (tuya_energy_enabled && fnId == TUYA_MCU_FUNC_POWER_COMBINED) {
           if (dpDataLen == 8) {
@@ -720,7 +729,7 @@ void TuyaProcessStatePacket(void) {
 
           if (RtcTime.valid) {
             if (Tuya.lastPowerCheckTime != 0 && Energy.active_power[0] > 0) {
-              Energy.kWhtoday += (float)Energy.active_power[0] * (Rtc.utc_time - Tuya.lastPowerCheckTime) / 36;
+              Energy.kWhtoday += Energy.active_power[0] * (float)(Rtc.utc_time - Tuya.lastPowerCheckTime) / 36.0;
               EnergyUpdateToday();
             }
             Tuya.lastPowerCheckTime = Rtc.utc_time;
@@ -778,7 +787,13 @@ void TuyaProcessStatePacket(void) {
           } else {
             if (fnId > 74) {
               res = 0;
-            } else { res = Settings.flag2.temperature_resolution; }
+            } else if (fnId > 72) {
+              res = Settings.flag2.humidity_resolution;
+            } else if (fnId == 72) {
+              res = Settings.mbflag2.temperature_set_res;
+            } else {
+              res = Settings.flag2.temperature_resolution;
+            }
             GetTextIndexed(sname, sizeof(sname), (fnId-71), kTuyaSensors);
             ResponseClear(); // Clear retained message
             Response_P(PSTR("{\"TuyaSNS\":{\"%s\":%s}}"), sname, dtostrfd(TuyaAdjustedTemperature(packetValue, res), res, tempval)); // sensor update is just on change
@@ -841,12 +856,13 @@ void TuyaProcessStatePacket(void) {
           Energy.current[0] = (float)packetValue / 1000;
           AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: Rx ID=%d Current=%d"), Tuya.buffer[dpidStart], packetValue);
         } else if (tuya_energy_enabled && fnId == TUYA_MCU_FUNC_POWER) {
+          uint32_t packetValue = Tuya.buffer[dpidStart + 5] << 16 |Tuya.buffer[dpidStart + 6] << 8 | Tuya.buffer[dpidStart + 7];
           Energy.active_power[0] = (float)packetValue / 10;
           AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: Rx ID=%d Active_Power=%d"), Tuya.buffer[dpidStart], packetValue);
 
           if (RtcTime.valid) {
             if (Tuya.lastPowerCheckTime != 0 && Energy.active_power[0] > 0) {
-              Energy.kWhtoday += (float)Energy.active_power[0] * (Rtc.utc_time - Tuya.lastPowerCheckTime) / 36;
+              Energy.kWhtoday += Energy.active_power[0] * (float)(Rtc.utc_time - Tuya.lastPowerCheckTime) / 36.0;
               EnergyUpdateToday();
             }
             Tuya.lastPowerCheckTime = Rtc.utc_time;
@@ -892,7 +908,7 @@ void TuyaProcessStatePacket(void) {
             ExecuteCommand(scmnd, SRC_SWITCH);
           }
         }
-        
+
       }
       else if (Tuya.buffer[dpidStart + 1] == 4) {  // Data Type 4
         const unsigned char *dpData = (unsigned char*)&Tuya.buffer[dpidStart + 4];
@@ -1190,7 +1206,7 @@ void TuyaSerialInput(void)
       } else {
         AddLog_P(LOG_LEVEL_DEBUG, TasmotaGlobal.mqtt_data);
       }
-      XdrvRulesProcess();
+      XdrvRulesProcess(0);
 
       if (dpId != 0 && Settings.tuyamcu_topic) { // Publish a /STAT Topic ready to use for any home automation system
         if (!Tuya.SuspendTopic) {
@@ -1344,7 +1360,13 @@ void TuyaSensorsShow(bool json)
         }
         if (sensor > 74) {
           res = 0;
-        } else { res = Settings.flag2.temperature_resolution; }
+        } else if (sensor > 72) {
+          res = Settings.flag2.humidity_resolution;
+        } else if (sensor == 72) {
+          res = Settings.mbflag2.temperature_set_res;
+        } else {
+          res = Settings.flag2.temperature_resolution;
+        }
 
         GetTextIndexed(sname, sizeof(sname), (sensor-71), kTuyaSensors);
         ResponseAppend_P(PSTR("\"%s\":%s"), sname,
@@ -1360,14 +1382,14 @@ void TuyaSensorsShow(bool json)
             break;
           case 72:
             WSContentSend_PD(PSTR("{s}" D_TEMPERATURE " Set{m}%s " D_UNIT_DEGREE "%c{e}"),
-                            dtostrfd(TuyaAdjustedTemperature(Tuya.Sensors[1], Settings.flag2.temperature_resolution), Settings.flag2.temperature_resolution, tempval), TempUnit());
+                            dtostrfd(TuyaAdjustedTemperature(Tuya.Sensors[1], Settings.mbflag2.temperature_set_res), Settings.mbflag2.temperature_set_res, tempval), TempUnit());
             break;
           case 73:
-            WSContentSend_PD(HTTP_SNS_HUM, "", dtostrfd(Tuya.Sensors[2], Settings.flag2.temperature_resolution, tempval));
+            WSContentSend_PD(HTTP_SNS_HUM, "", dtostrfd(TuyaAdjustedTemperature(Tuya.Sensors[2], Settings.flag2.humidity_resolution), Settings.flag2.humidity_resolution, tempval));
             break;
           case 74:
             WSContentSend_PD(PSTR("{s}" D_HUMIDITY " Set{m}%s " D_UNIT_PERCENT "{e}"),
-                            dtostrfd(Tuya.Sensors[3], Settings.flag2.temperature_resolution, tempval));
+                            dtostrfd(TuyaAdjustedTemperature(Tuya.Sensors[3], Settings.flag2.humidity_resolution), Settings.flag2.humidity_resolution, tempval));
             break;
           case 75:
             WSContentSend_PD(HTTP_SNS_ILLUMINANCE, "", Tuya.Sensors[4]);
@@ -1380,6 +1402,9 @@ void TuyaSensorsShow(bool json)
             break;
           case 78:
             WSContentSend_PD(HTTP_SNS_CO2EAVG, "", Tuya.Sensors[7]);
+            break;
+          case 79:
+            WSContentSend_PD(HTTP_SNS_GAS, "", Tuya.Sensors[8]);
             break;
           case 81:
           case 82:

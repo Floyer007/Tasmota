@@ -518,7 +518,7 @@ void Z_Devices::jsonAppend(uint16_t shortaddr, const Z_attribute_list &attr_list
 void Z_Device::jsonPublishAttrList(const char * json_prefix, const Z_attribute_list &attr_list) const {
   bool use_fname = (Settings.flag4.zigbee_use_names) && (friendlyName);    // should we replace shortaddr with friendlyname?
 
-  TasmotaGlobal.mqtt_data[0] = 0; // clear string
+  ResponseClear(); // clear string
   // Do we prefix with `ZbReceived`?
   if (!Settings.flag4.remove_zbreceived && !Settings.flag5.zb_received_as_subtopic) {
     Response_P(PSTR("{\"%s\":"), json_prefix);
@@ -583,7 +583,7 @@ void Z_Device::jsonPublishAttrList(const char * json_prefix, const Z_attribute_l
   } else {
     MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);
   }
-  XdrvRulesProcess();     // apply rules
+  XdrvRulesProcess(0);     // apply rules
 }
 
 void Z_Devices::jsonPublishFlush(uint16_t shortaddr) {

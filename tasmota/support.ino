@@ -35,7 +35,7 @@ static unsigned long oswatch_last_loop_time;
 uint8_t oswatch_blocked_loop = 0;
 
 #ifndef USE_WS2812_DMA  // Collides with Neopixelbus but solves exception
-//void OsWatchTicker() ICACHE_RAM_ATTR;
+//void OsWatchTicker() IRAM_ATTR;
 #endif  // USE_WS2812_DMA
 
 #ifdef USE_KNX
@@ -515,6 +515,14 @@ char* UpperCase_P(char* dest, const char* source)
   return dest;
 }
 
+bool StrCaseStr_P(const char* source, const char* search) {
+  char case_source[strlen_P(source) +1];
+  UpperCase_P(case_source, source);
+  char case_search[strlen_P(search) +1];
+  UpperCase_P(case_search, search);
+  return (strstr(case_source, case_search) != nullptr);
+}
+
 char* Trim(char* p)
 {
   if (*p != '\0') {
@@ -525,6 +533,24 @@ char* Trim(char* p)
     *q = '\0';
   }
   return p;
+}
+
+String HexToString(uint8_t* data, uint32_t length) {
+  if (!data || !length) { return ""; }
+
+  uint32_t len = (length < 16) ? length : 16;
+  char hex_data[32];
+  ToHex_P((const unsigned char*)data, len, hex_data, sizeof(hex_data));
+  String result = hex_data;
+  result += F(" [");
+  for (uint32_t i = 0; i < len; i++) {
+    result += (isprint(data[i])) ? (char)data[i] : ' ';
+  }
+  result += F("]");
+  if (length > len) {
+    result += F(" ...");
+  }
+  return result;
 }
 
 String UrlEncode(const String& text) {
@@ -558,25 +584,6 @@ String UrlEncode(const String& text) {
 	}
 	return encoded;
 }
-
-/*
-char* RemoveAllSpaces(char* p)
-{
-  // remove any white space from the base64
-  char *cursor = p;
-  uint32_t offset = 0;
-  while (1) {
-    *cursor = *(cursor + offset);
-    if ((' ' == *cursor) || ('\t' == *cursor) || ('\n' == *cursor)) {   // if space found, remove this char until end of string
-      offset++;
-    } else {
-      if (0 == *cursor) { break; }
-      cursor++;
-    }
-  }
-  return p;
-}
-*/
 
 char* NoAlNumToUnderscore(char* dest, const char* source)
 {
@@ -1162,8 +1169,20 @@ char* ResponseGetTime(uint32_t format, char* time_str)
   return time_str;
 }
 
+uint32_t ResponseSize(void) {
+  return sizeof(TasmotaGlobal.mqtt_data);
+}
+
+uint32_t ResponseLength(void) {
+  return strlen(TasmotaGlobal.mqtt_data);
+}
+
 void ResponseClear(void) {
   TasmotaGlobal.mqtt_data[0] = '\0';
+}
+
+void ResponseJsonStart(void) {
+  TasmotaGlobal.mqtt_data[0] = '{';
 }
 
 int Response_P(const char* format, ...)        // Content send snprintf_P char data
@@ -1171,7 +1190,7 @@ int Response_P(const char* format, ...)        // Content send snprintf_P char d
   // This uses char strings. Be aware of sending %% if % is needed
   va_list args;
   va_start(args, format);
-  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), format, args);
+  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data, ResponseSize(), format, args);
   va_end(args);
   return len;
 }
@@ -1184,8 +1203,8 @@ int ResponseTime_P(const char* format, ...)    // Content send snprintf_P char d
 
   ResponseGetTime(Settings.flag2.time_format, TasmotaGlobal.mqtt_data);
 
-  int mlen = strlen(TasmotaGlobal.mqtt_data);
-  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, sizeof(TasmotaGlobal.mqtt_data) - mlen, format, args);
+  int mlen = ResponseLength();
+  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, ResponseSize() - mlen, format, args);
   va_end(args);
   return len + mlen;
 }
@@ -1195,8 +1214,8 @@ int ResponseAppend_P(const char* format, ...)  // Content send snprintf_P char d
   // This uses char strings. Be aware of sending %% if % is needed
   va_list args;
   va_start(args, format);
-  int mlen = strlen(TasmotaGlobal.mqtt_data);
-  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, sizeof(TasmotaGlobal.mqtt_data) - mlen, format, args);
+  int mlen = ResponseLength();
+  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, ResponseSize() - mlen, format, args);
   va_end(args);
   return len + mlen;
 }
@@ -1229,6 +1248,10 @@ int ResponseJsonEnd(void)
 int ResponseJsonEndEnd(void)
 {
   return ResponseAppend_P(PSTR("}}"));
+}
+
+bool ResponseContains_P(const char* needle) {
+  return (strstr_P(TasmotaGlobal.mqtt_data, needle) != nullptr);
 }
 
 /*********************************************************************************************\
@@ -1295,7 +1318,7 @@ void DumpConvertTable(void) {
     jsflg = true;
     if ((ResponseAppend_P(PSTR("\"%d\":\"%d\""), i, data) > (MAX_LOGSZ - TOPSZ)) || (i == nitems(kGpioConvert) -1)) {
       ResponseJsonEndEnd();
-      MqttPublishPrefixTopic_P(RESULT_OR_STAT, XdrvMailbox.command);
+      MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, XdrvMailbox.command);
       jsflg = false;
       lines++;
     }
@@ -1310,7 +1333,7 @@ void DumpConvertTable(void) {
     jsflg = true;
     if ((ResponseAppend_P(PSTR("\"%d\":\"%d\""), i, data) > (MAX_LOGSZ - TOPSZ)) || (i == nitems(kAdcNiceList) -1)) {
       ResponseJsonEndEnd();
-      MqttPublishPrefixTopic_P(RESULT_OR_STAT, XdrvMailbox.command);
+      MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, XdrvMailbox.command);
       jsflg = false;
       lines++;
     }
@@ -1320,8 +1343,8 @@ void DumpConvertTable(void) {
 */
 #endif  // ESP8266
 
-int ICACHE_RAM_ATTR Pin(uint32_t gpio, uint32_t index = 0);
-int ICACHE_RAM_ATTR Pin(uint32_t gpio, uint32_t index) {
+int IRAM_ATTR Pin(uint32_t gpio, uint32_t index = 0);
+int IRAM_ATTR Pin(uint32_t gpio, uint32_t index) {
   uint16_t real_gpio = gpio << 5;
   uint16_t mask = 0xFFE0;
   if (index < GPIO_ANY) {
@@ -1395,6 +1418,7 @@ bool ValidModule(uint32_t index)
 }
 
 bool ValidTemplate(const char *search) {
+/*
   char template_name[strlen(SettingsText(SET_TEMPLATE_NAME)) +1];
   char search_name[strlen(search) +1];
 
@@ -1402,6 +1426,8 @@ bool ValidTemplate(const char *search) {
   LowerCase(search_name, search);
 
   return (strstr(template_name, search_name) != nullptr);
+*/
+  return StrCaseStr_P(SettingsText(SET_TEMPLATE_NAME), search);
 }
 
 String AnyModuleName(uint32_t index)
@@ -1643,6 +1669,23 @@ bool JsonTemplate(char* dataBuf)
     uint32_t base = val.getUInt();
     if ((0 == base) || !ValidTemplateModule(base -1)) { base = 18; }
     Settings.user_template_base = base -1;  // Default WEMOS
+  }
+
+  val = root[PSTR(D_JSON_CMND)];
+  if (val) {
+    if ((USER_MODULE == Settings.module) || StrCaseStr_P(val.getStr(), PSTR(D_CMND_MODULE " 0"))) {  // Only execute if current module = USER_MODULE = this template
+      char* backup_data = XdrvMailbox.data;
+      XdrvMailbox.data = (char*)val.getStr();   // Backlog commands
+      ReplaceChar(XdrvMailbox.data, '|', ';');  // Support '|' as command separator for JSON backwards compatibility
+      uint32_t backup_data_len = XdrvMailbox.data_len;
+      XdrvMailbox.data_len = 1;                 // Any data
+      uint32_t backup_index = XdrvMailbox.index;
+      XdrvMailbox.index = 0;                    // Backlog0 - no delay
+      CmndBacklog();
+      XdrvMailbox.index = backup_index;
+      XdrvMailbox.data_len = backup_data_len;
+      XdrvMailbox.data = backup_data;
+    }
   }
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR("TPL: Converted"));
@@ -1990,9 +2033,8 @@ int8_t I2cWriteBuffer(uint8_t addr, uint8_t reg, uint8_t *reg_data, uint16_t len
   return 0;
 }
 
-void I2cScan(char *devs, unsigned int devs_len, uint32_t bus = 0);
-void I2cScan(char *devs, unsigned int devs_len, uint32_t bus)
-{
+void I2cScan(uint32_t bus = 0);
+void I2cScan(uint32_t bus) {
   // Return error codes defined in twi.h and core_esp8266_si2c.c
   // I2C_OK                      0
   // I2C_SCL_HELD_LOW            1 = SCL held low by another device, no procedure available to recover
@@ -2004,7 +2046,7 @@ void I2cScan(char *devs, unsigned int devs_len, uint32_t bus)
   uint8_t address = 0;
   uint8_t any = 0;
 
-  snprintf_P(devs, devs_len, PSTR("{\"" D_CMND_I2CSCAN "\":\"" D_JSON_I2CSCAN_DEVICES_FOUND_AT));
+  Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"" D_JSON_I2CSCAN_DEVICES_FOUND_AT));
   for (address = 1; address <= 127; address++) {
 #ifdef ESP32
     TwoWire & myWire = (bus == 0) ? Wire : Wire1;
@@ -2015,19 +2057,19 @@ void I2cScan(char *devs, unsigned int devs_len, uint32_t bus)
     error = myWire.endTransmission();
     if (0 == error) {
       any = 1;
-      snprintf_P(devs, devs_len, PSTR("%s 0x%02x"), devs, address);
+      ResponseAppend_P(PSTR(" 0x%02x"), address);
     }
     else if (error != 2) {  // Seems to happen anyway using this scan
       any = 2;
-      snprintf_P(devs, devs_len, PSTR("{\"" D_CMND_I2CSCAN "\":\"Error %d at 0x%02x"), error, address);
+      Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"Error %d at 0x%02x"), error, address);
       break;
     }
   }
   if (any) {
-    strncat(devs, "\"}", devs_len - strlen(devs) -1);
+    ResponseAppend_P(PSTR("\"}"));
   }
   else {
-    snprintf_P(devs, devs_len, PSTR("{\"" D_CMND_I2CSCAN "\":\"" D_JSON_I2CSCAN_NO_DEVICES_FOUND "\"}"));
+    Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"" D_JSON_I2CSCAN_NO_DEVICES_FOUND "\"}"));
   }
 }
 
@@ -2376,9 +2418,6 @@ void AddLogSpi(bool hardware, uint32_t clk, uint32_t mosi, uint32_t miso) {
       break;
   }
 }
-
-
-
 
 /*********************************************************************************************\
  * Uncompress static PROGMEM strings

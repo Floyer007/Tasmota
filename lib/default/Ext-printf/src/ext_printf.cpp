@@ -126,18 +126,19 @@ void * __va_cur_ptr4(va_list &va) {
 // >>> Reading a_ptr=0x3FFFFD70 *a_ptr=6
 // >>> Reading a_ptr=0x3FFFFD74 *a_ptr=7
 // >>> Reading a_ptr=0x3FFFFD78 *a_ptr=8
-#elif defined(__RISC_V__)
+
+#elif defined(__riscv)
 // #define __va_argsiz_tas(t)  	(((sizeof(t) + sizeof(int) - 1) / sizeof(int)) * sizeof(int))
 #define va_cur_ptr4(va,T) ( (T*) __va_cur_ptr4(va) )
 void * __va_cur_ptr4(va_list &va) {
   uintptr_t * va_ptr = (uintptr_t*) &va;
-  void * cur_ptr = (void*) *va_ptr;
-  *va_ptr += 4;
-  return cur_ptr;
+  int32_t * cur_ptr = (int32_t*) *va_ptr;
+  return (void*) (cur_ptr - 1);
 }
-#else   // __XTENSA__, __RISCV__
+
+#else   // __XTENSA__, __riscv
   #error "ext_printf is not suppoerted on this platform"
-#endif  // __XTENSA__, __RISCV__
+#endif  // __XTENSA__, __riscv
 
 /*********************************************************************************************\
  * Genral function to convert u64 to hex
@@ -213,7 +214,7 @@ char * copyStr(const char * str) {
 }
 
 const char ext_invalid_mem[] PROGMEM = "<--INVALID-->";
-const uint32_t min_valid_ptr = 0x3FF00000;    // addresses below this line are invalid
+const uint32_t min_valid_ptr = 0x3F000000;    // addresses below this line are invalid
 
 int32_t ext_vsnprintf_P(char * buf, size_t buf_len, const char * fmt_P, va_list va) {
   va_list va_cpy;

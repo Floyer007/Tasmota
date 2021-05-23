@@ -63,6 +63,9 @@ extern "C" {
   void *berry_realloc(void *ptr, size_t size) {
     return special_realloc(ptr, size);
   }
+  void *berry_calloc(size_t num, size_t size) {
+    return special_calloc(num, size);
+  }
 #else
   void *berry_malloc(uint32_t size) {
     return malloc(size);
@@ -70,14 +73,20 @@ extern "C" {
   void *berry_realloc(void *ptr, size_t size) {
     return realloc(ptr, size);
   }
+  void *berry_calloc(size_t num, size_t size) {
+    return calloc(num, size);
+  }
 #endif // USE_BERRY_PSRAM
 
+  void berry_free(void *ptr) {
+    free(ptr);
+  }
 }
 
 
 /*********************************************************************************************\
  * Handlers for Berry calls and async
- * 
+ *
 \*********************************************************************************************/
 // // call a function (if exists) of type void -> void
 
@@ -196,8 +205,8 @@ int32_t callBerryEventDispatcher(const char *type, const char *cmd, int32_t idx,
 /*********************************************************************************************\
  * VM Observability
 \*********************************************************************************************/
-void BerryObservability(bvm *vm, int32_t event...);
-void BerryObservability(bvm *vm, int32_t event...) {
+void BerryObservability(bvm *vm, int event...);
+void BerryObservability(bvm *vm, int event...) {
   va_list param;
   va_start(param, event);
   static int32_t vm_usage = 0;
@@ -225,10 +234,6 @@ void BerryObservability(bvm *vm, int32_t event...) {
 /*********************************************************************************************\
  * VM Init
 \*********************************************************************************************/
-extern "C" {
-  extern size_t be_gc_memcount(bvm *vm);
-  extern void be_gc_collect(bvm *vm);
-}
 void BrReset(void) {
   // clean previous VM if any
   if (berry.vm != nullptr) {
@@ -238,7 +243,7 @@ void BrReset(void) {
 
   int32_t ret_code1, ret_code2;
   bool berry_init_ok = false;
-  do {    
+  do {
     berry.vm = be_vm_new(); /* create a virtual machine instance */
     be_set_obs_hook(berry.vm, &BerryObservability);
     be_load_custom_libs(berry.vm);
@@ -266,7 +271,9 @@ void BrReset(void) {
     // AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_BERRY "Berry code ran, RAM used=%u"), be_gc_memcount(berry.vm));
     be_pop(berry.vm, 1);
 
-    be_gc_collect(berry.vm);
+    if (be_top(berry.vm) > 0) {
+      be_dumpstack(berry.vm);
+    }
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_BERRY "Berry initialized, RAM used=%u"), callBerryGC());
     // AddLog(LOG_LEVEL_INFO, PSTR("Delete Berry VM"));
     // be_vm_delete(vm);
@@ -383,7 +390,7 @@ void BrREPLRun(char * cmd) {
   char * cmd2 = (char*) malloc(cmd2_len);
   do {
     int32_t ret_code;
-    
+
     snprintf_P(cmd2, cmd2_len, PSTR("return (%s)"), cmd);
     ret_code = be_loadbuffer(berry.vm, PSTR("input"), cmd2, strlen(cmd2));
     // AddLog(LOG_LEVEL_INFO, PSTR(">>>> be_loadbuffer cmd2 '%s', ret=%i"), cmd2, ret_code);
@@ -426,7 +433,7 @@ const char HTTP_SCRIPT_BERRY_CONSOLE[] PROGMEM =
   "var sn=0,id=0,ft,ltm=%d;"                      // Scroll position, Get most of weblog initially
   // Console command history
   "var hc=[],cn=0;"                       // hc = History commands, cn = Number of history being shown
-  
+
   "function l(p){"                        // Console log and command service
     "var c,cc,o='';"
     "clearTimeout(lt);"
@@ -517,7 +524,7 @@ const char HTTP_SCRIPT_BERRY_CONSOLE2[] PROGMEM =
       // "13==c&&(hc.length>19&&hc.pop(),hc.unshift(b.value),cn=0)"       // Enter, 19 = Max number -1 of commands in history
     "});"
   "}"
-  "wl(h);";                               // Add console command key eventlistener after name has been synced with id (= wl(jd))  
+  "wl(h);";                               // Add console command key eventlistener after name has been synced with id (= wl(jd))
 
 const char HTTP_BERRY_STYLE_CMND[] PROGMEM =
   "<style>"
@@ -638,7 +645,7 @@ void HandleBerryConsole(void)
   WSContentFlush();
   _WSContentSend(HTTP_BERRY_STYLE_CMND);
   _WSContentSend(HTTP_BERRY_FORM_CMND);
-  WSContentSpaceButton(BUTTON_MAIN);
+  WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentStop();
 }
 
@@ -712,7 +719,7 @@ bool Xdrv52(uint8_t function)
         result = callBerryEventDispatcher(PSTR("cmd"), XdrvMailbox.topic, XdrvMailbox.index, XdrvMailbox.data);
       }
       break;
-    
+
     // Module specific events
     case FUNC_EVERY_100_MSECOND:
       callBerryEventDispatcher(PSTR("every_100ms"), nullptr, 0, nullptr);
@@ -723,9 +730,13 @@ bool Xdrv52(uint8_t function)
     // case FUNC_SET_POWER:
     //   break;
 #ifdef USE_WEBSERVER
-    case FUNC_WEB_ADD_BUTTON:
-      WSContentSend_P(HTTP_BTN_BERRY_CONSOLE);
-      callBerryEventDispatcher(PSTR("web_add_button"), nullptr, 0, nullptr);
+    case FUNC_WEB_ADD_CONSOLE_BUTTON:
+      if (XdrvMailbox.index) {
+        XdrvMailbox.index++;
+      } else {
+        WSContentSend_P(HTTP_BTN_BERRY_CONSOLE);
+        callBerryEventDispatcher(PSTR("web_add_button"), nullptr, 0, nullptr);
+      }
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
       callBerryEventDispatcher(PSTR("web_add_main_button"), nullptr, 0, nullptr);

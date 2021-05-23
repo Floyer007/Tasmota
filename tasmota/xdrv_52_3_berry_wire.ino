@@ -20,24 +20,26 @@
 
 #ifdef USE_BERRY
 
+#ifdef USE_I2C
+
 #include <berry.h>
 #include <Wire.h>
 
-// read the `_bus` attribute and return `Wire` or `Wire1`
+// read the `bus` attribute and return `Wire` or `Wire1`
 TwoWire & getWire(bvm *vm);
 TwoWire & getWire(bvm *vm) {
-  be_getmember(vm, 1, "_bus");
-  int32_t bus = be_toint(vm, -1);
+  be_getmember(vm, 1, "bus");
+  int32_t bus = be_toint(vm, -1); // bus is 1 or 2
   be_pop(vm, 1);
-  if (0 == bus) {
+  if (2 != bus) {
     return Wire;
   } else {
     return Wire1;
   }
 }
-int32_t getBus(bvm *vm);
+int32_t getBus(bvm *vm);    // 1 or 2
 int32_t getBus(bvm *vm) {
-  be_getmember(vm, 1, "_bus");
+  be_getmember(vm, 1, "bus");
   int32_t bus = be_toint(vm, -1);
   be_pop(vm, 1);
   return bus;
@@ -52,20 +54,19 @@ int32_t getBus(bvm *vm) {
  * 
 \*********************************************************************************************/
 extern "C" {
-#ifdef USE_I2C
   // Berry: `init([bus:int = 0]) -> nil
   int32_t b_wire_init(struct bvm *vm);
   int32_t b_wire_init(struct bvm *vm) {
     int32_t top = be_top(vm); // Get the number of arguments
-    int32_t bus = 0;
+    int32_t bus = 1;
     if (top > 1 && be_isint(vm, 2)) {
       bus = be_toint(vm, 2);
-      if (bus < 0) { bus = 0; }
-      if (bus > 1) { bus = 1; }
+      if (bus < 1) { bus = 1; }
+      if (bus > 2) { bus = 2; }
     }
     // store bus in instance
     be_pushint(vm, bus);
-    be_setmember(vm, 1, "_bus");
+    be_setmember(vm, 1, "bus");
     be_return_nil(vm);
   }
 
@@ -193,7 +194,7 @@ extern "C" {
   int32_t b_wire_validwrite(struct bvm *vm);
   int32_t b_wire_validwrite(struct bvm *vm) {
     int32_t top = be_top(vm); // Get the number of arguments
-    int32_t bus = getBus(vm);
+    int32_t bus = getBus(vm) - 1; // 0 or 1
     if (top == 5 && be_isint(vm, 2) && be_isint(vm, 3) && be_isint(vm, 4) && be_isint(vm, 5)) {
       uint8_t addr = be_toint(vm, 2);
       uint8_t reg = be_toint(vm, 3);
@@ -210,7 +211,7 @@ extern "C" {
   int32_t b_wire_validread(struct bvm *vm);
   int32_t b_wire_validread(struct bvm *vm) {
     int32_t top = be_top(vm); // Get the number of arguments
-    int32_t bus = getBus(vm);
+    int32_t bus = getBus(vm) - 1; // 0 or 1
     if (top == 4 && be_isint(vm, 2) && be_isint(vm, 3) && be_isint(vm, 4)) {
       uint8_t addr = be_toint(vm, 2);
       uint8_t reg = be_toint(vm, 3);
@@ -241,28 +242,16 @@ extern "C" {
     }
     be_raise(vm, kTypeError, nullptr);
   }
-#else // USE_I2C
-  // 
+}
+
+#endif // USE_I2C
+
+extern "C" {
+  // Handle methods that require I2C to be enabled
   int32_t b_wire_i2cmissing(struct bvm *vm);
   int32_t b_wire_i2cmissing(struct bvm *vm) {
     be_raise(vm, "feature_error", "I2C is not enabled, use '#define USE_I2C'");
   }
-
-  // define weak aliases
-  int32_t b_wire_init(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_begintransmission(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_endtransmission(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_requestfrom(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_available(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_write(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_read(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_scan(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_validwrite(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_validread(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_readbytes(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_writebytes(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-  int32_t b_wire_detect(struct bvm *vm) __attribute__ ((weak, alias ("b_wire_i2cmissing")));
-#endif // USE_I2C
 }
 
 #endif  // USE_BERRY

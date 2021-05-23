@@ -37,6 +37,7 @@ VL53L1X vl53l1x = VL53L1X(); // create object copy
 
 struct {
   uint16_t distance = 0;
+  uint16_t counter = 0;
   bool ready = false;
 } vl53l1x_sensors;
 
@@ -81,6 +82,9 @@ void Vl53l1Show(bool json) {
 #ifdef USE_WEBSERVER
   } else {
     WSContentSend_PD(HTTP_SNS_DISTANCE, PSTR("VL53L1X"), vl53l1x_sensors.distance);
+#ifdef USE_VL53L1X_PPL_COUNTER
+    WSContentSend_PD(HTTP_SNS_COUNT, PSTR("VL53L1X"), vl53l1x_sensors.counter);
+#endif
 #endif
   }
 }

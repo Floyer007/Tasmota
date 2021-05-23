@@ -843,6 +843,7 @@ const char HTTP_SNS_COLOR_RED[]     PROGMEM = "{s}%s "  D_COLOR_RED           "{
 const char HTTP_SNS_COLOR_GREEN[]   PROGMEM = "{s}%s "  D_COLOR_GREEN         "{m}%u "                            "{e}";
 const char HTTP_SNS_COLOR_BLUE[]    PROGMEM = "{s}%s "  D_COLOR_BLUE          "{m}%u "                            "{e}";
 const char HTTP_SNS_MILLILITERS[]   PROGMEM = "{s}%s "  D_VOLUME              "{m}%s " D_UNIT_MILLILITERS         "{e}";
+const char HTTP_SNS_COUNT[]         PROGMEM = "{s}%s "  D_COUNTER               "{m}%d"                             "{e}";
 #endif  // USE_WEBSERVER
 
 #endif  // _I18N_H_

@@ -762,6 +762,7 @@ struct {
   uint32_t      i2c_drivers[3];            // FEC  I2cDriver
   uint32_t      cfg_timestamp;             // FF8
   uint32_t      cfg_crc32;                 // FFC
+  uint16_t      pulse_counter_mode;
 } Settings;
 
 typedef struct {

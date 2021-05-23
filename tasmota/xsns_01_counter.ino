@@ -28,15 +28,16 @@
 
 #define D_PRFX_COUNTER "Counter"
 #define D_CMND_COUNTERTYPE "Type"
+#define D_CMND_COUNTERMODE "Mode"
 #define D_CMND_COUNTERDEBOUNCE "Debounce"
 #define D_CMND_COUNTERDEBOUNCELOW "DebounceLow"
 #define D_CMND_COUNTERDEBOUNCEHIGH "DebounceHigh"
 
 const char kCounterCommands[] PROGMEM = D_PRFX_COUNTER "|"  // Prefix
-  "|" D_CMND_COUNTERTYPE "|" D_CMND_COUNTERDEBOUNCE  "|" D_CMND_COUNTERDEBOUNCELOW "|" D_CMND_COUNTERDEBOUNCEHIGH ;
+  "|" D_CMND_COUNTERTYPE "|" D_CMND_COUNTERMODE "|" D_CMND_COUNTERDEBOUNCE  "|" D_CMND_COUNTERDEBOUNCELOW "|" D_CMND_COUNTERDEBOUNCEHIGH ;
 
 void (* const CounterCommand[])(void) PROGMEM = {
-  &CmndCounter, &CmndCounterType, &CmndCounterDebounce, &CmndCounterDebounceLow, &CmndCounterDebounceHigh };
+  &CmndCounter, &CmndCounterType, &CmndCounterMode, &CmndCounterDebounce, &CmndCounterDebounceLow, &CmndCounterDebounceHigh };
 
 uint8_t ctr_index[MAX_COUNTERS] =  { 0, 1, 2, 3 };
 
@@ -84,7 +85,8 @@ void IRAM_ATTR CounterIsrArg(void *arg) {
     // passed debounce check, save pin state and timing
     Counter.timer_low_high[index] = time;
     Counter.pin_state ^= (1<<index);
-    // do not count on rising edge
+
+    // do not count on rising edge unless it is desired
     if bitRead(Counter.pin_state, index) {
       // PWMfrequency 100
       // restart PWM each second (german 50Hz has to up to 0.01% deviation)
@@ -102,7 +104,9 @@ void IRAM_ATTR CounterIsrArg(void *arg) {
         ac_zero_cross_dimmer.lastCycleCount = ac_zero_cross_dimmer.currentCycleCount;
       }
 #endif
-      return;
+      if bitRead(Settings.pulse_counter_mode, index) {
+        return;
+      }
     }
   }
 
@@ -300,6 +304,18 @@ void CmndCounterType(void)
       Settings.pulse_counter[XdrvMailbox.index -1] = 0;
     }
     ResponseCmndIdxNumber(bitRead(Settings.pulse_counter_type, XdrvMailbox.index -1));
+  }
+}
+
+void CmndCounterMode(void)
+{
+  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= MAX_COUNTERS)) {
+    if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 1) && PinUsed(GPIO_CNTR1, XdrvMailbox.index -1)) {
+      bitWrite(Settings.pulse_counter_mode, XdrvMailbox.index -1, XdrvMailbox.payload &1);
+      RtcSettings.pulse_counter[XdrvMailbox.index -1] = 0;
+      Settings.pulse_counter[XdrvMailbox.index -1] = 0;
+    }
+    ResponseCmndIdxNumber(bitRead(Settings.pulse_counter_mode, XdrvMailbox.index -1));
   }
 }
 

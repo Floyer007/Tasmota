@@ -36,6 +36,10 @@ extern FS *ufsp;
 extern FS *ffsp;
 #endif
 
+#ifdef USE_TOUCH_BUTTONS
+extern VButton *buttons[MAX_TOUCH_BUTTONS];
+#endif
+
 // drawing color is WHITE
 // on epaper the whole display buffer is transfered inverted this results in white paper
 uint16_t fg_color = 1;
@@ -1292,7 +1296,7 @@ void draw_dt_vars(void) {
 void DisplayDTVarsTeleperiod(void) {
   ResponseClear();
   MqttShowState();
-  uint32_t jlen = strlen(TasmotaGlobal.mqtt_data);
+  uint32_t jlen = ResponseLength();
 
   if (jlen < DTV_JSON_SIZE) {
     char *json = (char*)malloc(jlen + 2);
